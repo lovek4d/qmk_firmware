@@ -31,15 +31,16 @@ enum planck_layers {
 #define QWERTY  PDF(_QWERTY)
 #define COLEMAK PDF(_COLEMAK)
 
-#define LOWER  MO(_LOWER)
-#define RAISE  MO(_RAISE)
-
 #define SFTENT RSFT_T(KC_ENT) // shift on hold, enter on tap
 #define ESCCMD LGUI_T(KC_ESC) // gui on hold, escape on tap
 
 enum planck_keycodes {
-  GLOBE = SAFE_RANGE // macOS Globe/Fn key (AC Next Keyboard Layout Select)
+  GLOBE = SAFE_RANGE, // macOS Globe/Fn key (AC Next Keyboard Layout Select)
+  LOWER,              // momentary _LOWER; tap then hold for _RAISE
+  RAISE               // momentary _RAISE; tap then hold for _LOWER
 };
+
+#define LAYER_SWAP_TERM 200 // ms window for the tap and re-press that swap LOWER/RAISE
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
@@ -141,6 +142,36 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+  static uint16_t tap_key = KC_NO; // LOWER/RAISE if it was just cleanly tapped
+  static uint16_t tap_time;
+  static uint8_t  lower_held = _LOWER, raise_held = _RAISE;
+
+  switch (keycode) {
+    case LOWER:
+    case RAISE: {
+      uint8_t *held = keycode == LOWER ? &lower_held : &raise_held;
+      if (record->event.pressed) {
+        bool swap = tap_key == keycode && timer_elapsed(tap_time) < LAYER_SWAP_TERM;
+        *held = (keycode == LOWER) != swap ? _LOWER : _RAISE;
+        layer_on(*held);
+        tap_key = swap ? KC_NO : keycode;
+        tap_time = timer_read();
+      } else {
+        layer_off(*held);
+        if (tap_key == keycode && timer_elapsed(tap_time) < LAYER_SWAP_TERM) {
+          tap_time = timer_read();
+        } else {
+          tap_key = KC_NO;
+        }
+      }
+      return false;
+    }
+  }
+
+  if (record->event.pressed) {
+    tap_key = KC_NO; // any other key press means the last LOWER/RAISE wasn't a clean tap
+  }
+
   switch (keycode) {
     case GLOBE:
       host_consumer_send(record->event.pressed ? AC_NEXT_KEYBOARD_LAYOUT_SELECT : 0);
